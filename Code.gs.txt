@@ -1,0 +1,35 @@
+/** Fleet Planning API. Bound to the "Fleet Planning Database" spreadsheet.
+ *  Set Script Property ADMIN_KEY (Project Settings > Script Properties). The key is never stored in this file. */
+var TABS={trips:['month','plate','day','dc','km','revenue','fuel','wage','incentive'],cars:['plate','type','year','dc','rate','group'],dcs:['dc','name','zone'],prices:['month','day','price'],adj:['month','kind','plate','date','dc','old','new','why','km'],summary:['month','json'],log:['time','action','detail']};
+var THAI={trips:'Trips',cars:'Cars',dcs:'DCs',prices:'Prices',adj:'Adjustments',summary:'Summary',log:'Log'};
+function ss_(){return SpreadsheetApp.getActiveSpreadsheet()}
+function tab_(k){var s=ss_(),t=s.getSheetByName(THAI[k]);if(!t){t=s.insertSheet(THAI[k]);t.getRange(1,1,1,TABS[k].length).setValues([TABS[k]]).setFontWeight('bold');t.setFrozenRows(1)}return t}
+function read_(k){var t=tab_(k),n=t.getLastRow();return n<2?[]:t.getRange(2,1,n-1,TABS[k].length).getValues()}
+var TEXT={trips:[1,2],cars:[1,2,6],dcs:[2,3],prices:[1],adj:[1,2,3,4,8],summary:[1,2],log:[]};
+function write_(k,rows){var t=tab_(k),n=t.getLastRow(),w=TABS[k].length;if(n>1)t.getRange(2,1,n-1,w).clearContent();if(!rows.length)return;TEXT[k].forEach(function(c){t.getRange(2,c,rows.length,1).setNumberFormat('@')});t.getRange(2,1,rows.length,w).setValues(rows)}
+function json_(o){return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON)}
+function publicData_(){var px={};read_('prices').forEach(function(r){var m=String(r[0]);(px[m]=px[m]||[]).push([+r[1],+r[2]])});for(var k in px)px[k].sort(function(a,b){return a[0]-b[0]});
+ return{rows:read_('trips').map(function(r){return[String(r[0]),String(r[1]),+r[2],+r[3],+r[4],+r[5],+r[6],+r[7],+r[8]]}),cars:read_('cars').map(function(r){return[String(r[0]),String(r[1]),+r[2],+r[3],+r[4],String(r[5])]}),dcs:read_('dcs').map(function(r){return[+r[0],String(r[1]),String(r[2])]}),px:px}}
+var CK='fleet-data';
+function cacheGet_(){var c=CacheService.getScriptCache(),n=c.get(CK+'-n');if(!n)return null;var keys=[];for(var i=0;i<+n;i++)keys.push(CK+'-'+i);var all=c.getAll(keys),b='';for(i=0;i<keys.length;i++){if(!all[keys[i]])return null;b+=all[keys[i]]}return Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(b),'application/x-gzip')).getDataAsString('UTF-8')}
+function cachePut_(s){var b=Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(s,'text/plain')).getBytes()),o={},n=0;for(var i=0;i<b.length;i+=90000)o[CK+'-'+(n++)]=b.substr(i,90000);if(n<=90){o[CK+'-n']=String(n);CacheService.getScriptCache().putAll(o,21600)}}
+function cacheClear_(){var c=CacheService.getScriptCache();c.remove(CK+'-n')}
+function doGet(){var s=null;try{s=cacheGet_()}catch(e){}if(!s){s=JSON.stringify(publicData_());try{cachePut_(s)}catch(e){}}return ContentService.createTextOutput(s).setMimeType(ContentService.MimeType.JSON)}
+function log_(a,d){tab_('log').appendRow([new Date(),a,d])}
+function doPost(e){var b;try{b=JSON.parse(e.postData.contents)}catch(x){return json_({ok:false,error:'bad_request'})}
+ var key=PropertiesService.getScriptProperties().getProperty('ADMIN_KEY');if(!key||!b.key||b.key!==key){Utilities.sleep(1200);return json_({ok:false,error:'denied'})}
+ if(b.a==='auth')return json_({ok:true});
+ if(b.a==='admin'){var s={};read_('summary').forEach(function(r){s[String(r[0])]=JSON.parse(r[1])});return json_({ok:true,summary:s,adj:read_('adj').map(function(r){return{m:String(r[0]),k:String(r[1]),pl:String(r[2]),d:String(r[3]),dc:r[4]===''?null:+r[4],old:+r[5],'new':+r[6],why:String(r[7]),km:r[8]===''?null:+r[8]}})})}
+ var lock=LockService.getScriptLock();if(!lock.tryLock(25000))return json_({ok:false,error:'busy'});
+ try{
+  if(b.a==='seed'){write_('dcs',b.dcs);write_('cars',b.cars);write_('prices',b.prices);write_('trips',b.rows);write_('adj',b.adj);write_('summary',b.summary);log_('seed',b.rows.length+' rows')}
+  else if(b.a==='upsert'){var set={};b.days.forEach(function(d){set[d]=1});var keep=read_('trips').filter(function(r){return !set[String(r[0])+'-'+(+r[2])]});write_('trips',keep.concat(b.rows));
+   var keepA=read_('adj').filter(function(r){var p=String(r[3]).split('/');return !set[String(r[0])+'-'+(+p[0])]});write_('adj',keepA.concat(b.adj));
+   var ms={};b.summary.forEach(function(x){ms[x[0]]=1});write_('summary',read_('summary').filter(function(r){return !ms[String(r[0])]}).concat(b.summary));
+   var pm={};b.prices.forEach(function(x){pm[x[0]]=1});write_('prices',read_('prices').filter(function(r){return !pm[String(r[0])]}).concat(b.prices));log_('upsert',b.rows.length+' rows, '+b.days.length+' days')}
+  else if(b.a==='cars'){write_('cars',b.cars);log_('cars',b.cars.length+' cars')}
+  else if(b.a==='prices'){write_('prices',b.prices);log_('prices',b.prices.length+' weeks')}
+  else if(b.a==='dcs'){write_('dcs',b.dcs);log_('dcs',b.dcs.length+' dcs')}
+  else return json_({ok:false,error:'unknown'});
+  cacheClear_();return json_({ok:true})
+ }finally{lock.releaseLock()}}
