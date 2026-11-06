@@ -1,5 +1,7 @@
 /* loads data from the Google Sheet API, then starts the dashboard */
 window.__STANDALONE=true;
+function closeCover(){const c=document.getElementById('cover');if(c)c.remove()}
+(function(){let k=null;try{k=sessionStorage.getItem('fleet-key')}catch(e){}if(location.hash==='#admin'||k){closeCover();return}const c=document.getElementById('cover');if(!c)return;c.querySelector('button').onclick=closeCover;c.querySelector('.fg').onclick=closeCover;c.querySelector('button').focus()})();
 async function api(body){const k=(()=>{try{return sessionStorage.getItem('fleet-key')}catch(e){return null}})();const r=await fetch(window.FLEET_API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...body,key:k})});const j=await r.json();if(!j.ok)throw new Error(j.error||'failed');return j}
 const bootMsg=(h)=>{document.getElementById('boot').innerHTML=h};
 function askKey(err){bootMsg(`<h1>ผู้ดูแลระบบ</h1>${err?`<p class="badt">${err}</p>`:''}<label for="adm-key">รหัสผู้ดูแล</label><input id="adm-key" type="password" autocomplete="current-password"><button class="btn" id="adm-go">เข้าสู่ระบบ</button>`);document.getElementById('boot').hidden=false;document.getElementById('adm-go').onclick=async()=>{const v=document.getElementById('adm-key').value;try{sessionStorage.setItem('fleet-key',v)}catch(e){}try{await api({a:'auth'});location.reload()}catch(e){try{sessionStorage.removeItem('fleet-key')}catch(x){}askKey('รหัสไม่ถูกต้อง')}}}
